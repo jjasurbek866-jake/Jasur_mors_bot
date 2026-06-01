@@ -1,5 +1,1 @@
-   *(Eslatma: aynan shunday katta-kichik harflar bilan yozilishi shart, chunki `telebot` kutubxonasining rasmiy nomi shunday).*
-
-3. Agar loyihangizda **`Dockerfile`** degan fayl bo'lsa, uni ham ochib ko'ring. Ichida mana shu qator borligiga ishonch hosil qiling (agar yo'q bo'lsangiz, qo'shib qo'ying):
-   ```dockerfile
-RUN pip install -r requirements.txt
+pyTelegramBotAPI
