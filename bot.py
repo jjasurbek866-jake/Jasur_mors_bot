@@ -1,11 +1,13 @@
+import asyncio
+from aiogram import Bot, Dispatcher, Router, F
+from aiogram.types import Message, ReplyKeyboardMarkup, KeyboardButton
+import aiosqlite
+from datetime import datetime
 import os
-import telebot
-from telebot import types
-import json
 from http.server import HTTPServer, BaseHTTPRequestHandler
 import threading
 
-# 1. RENDER UCHUN SOXTA VEB-SERVER (Botni 24/7 tirik saqlash uchun)
+# 1. RENDER UCHUN VEB-SERVER (Botingiz 24/7 tirik turishi uchun)
 class SimpleHTTPRequestHandler(BaseHTTPRequestHandler):
     def do_GET(self):
         self.send_response(200)
@@ -13,7 +15,7 @@ class SimpleHTTPRequestHandler(BaseHTTPRequestHandler):
         self.wfile.write(b"Bot is running!")
 
 def run_server():
-    # Render o'zi beradigan PORT-ni oladi, topilmasa 10000-portda ishlaydi
+    # Render muhitidan portni oladi, topilmasa 10000 portda ishlaydi
     port = int(os.environ.get("PORT", 10000))
     server = HTTPServer(('0.0.0.0', port), SimpleHTTPRequestHandler)
     server.serve_forever()
@@ -22,87 +24,112 @@ def run_server():
 threading.Thread(target=run_server, daemon=True).start()
 
 
-# 2. BOT TOKЕNINI OLISH VA BOTNI REJISTRATSIYA QILISH
+# 2. BOT VA DISPATCHER LOGIKASI
 # Render-dagi Environment Variables-ga kiritgan tokeningizni o'qiydi
-BOT_TOKEN = os.environ.get("BOT_TOKEN")
-bot = telebot.TeleBot(BOT_TOKEN)
+# Agar tokeningizni kod ichiga yozmoqchi bo'lsangiz, os.environ.get o'rniga shundoq "TOKENINIGIZ"ni yozib qo'yishingiz ham mumkin
+TOKEN = os.environ.get("BOT_TOKEN", "YOUR_TOKEN_HERE")
 
+bot = Bot(token=TOKEN)
+dp = Dispatcher()
+router = Router()
 
-# 3. BIZNES LOGIKASI VA SIZNING ESKI BOT KODLARINGIZ
-# Ma'lumotlarni saqlash uchun JSON fayl bilan ishlash
-DATA_FILE = "mors_biznes_data.json"
+PRICES = {
+    "☕ katta": 3000,
+    "🥤 kichik": 2000,
+    "🧴 1L": 5000,
+    "🧴 1.5L": 8000,
+    "🛢 5L": 25000
+}
 
-def load_data():
-    if os.path.exists(DATA_FILE):
-        with open(DATA_FILE, "r") as f:
-            return json.load(f)
-    return {"kirim": 0, "chiqim": 0, "foyda": 0, "savdo_tarixi": []}
+user_state = {}
 
-def save_data(data):
-    with open(DATA_FILE, "w") as f:
-        json.dump(data, f, indent=4)
-
-# Boshlang'ich buyruq: /start
-@bot.message_handler(commands=['start'])
-def start_command(message):
-    markup = types.ReplyKeyboardMarkup(resize_keyboard=True)
-    btn1 = types.KeyboardButton("📊 Statistika")
-    btn2 = types.KeyboardButton("➕ Kirim qo'shish")
-    btn3 = types.KeyboardButton("➖ Chiqim qo'shish")
-    markup.add(btn1)
-    markup.add(btn2, btn3)
-    
-    bot.send_message(
-        message.chat.id, 
-        f"Salom {message.from_user.first_name}! Mors biznesingizni hisob-kitob qilish botiga xush kelibsiz. Quyidagi menyudan foydalaning:", 
-        reply_markup=markup
+# MENU DIZAYNI (Sizning chiroyli eski dizayningiz)
+def menu():
+    return ReplyKeyboardMarkup(
+        keyboard=[
+            [KeyboardButton(text="☕ katta"), KeyboardButton(text="🥤 kichik")],
+            [KeyboardButton(text="🧴 1L"), KeyboardButton(text="🧴 1.5L")],
+            [KeyboardButton(text="🛢 5L")],
+            [KeyboardButton(text="📊 hisobot")]
+        ],
+        resize_keyboard=True
     )
 
-# Menyudagi tugmalar bosilganda ishlaydigan qism
-@bot.message_handler(func=lambda message: True)
-def handle_menu(message):
-    data = load_data()
-    
-    if message.text == "📊 Statistika":
-        foyda = data["kirim"] - data["chiqim"]
-        text = (
-            f"💰 *Biznesingiz statistikasi:*\n\n"
-            f"🟩 Umumiy kirim: {data['kirim']} so'm\n"
-            f"🟥 Umumiy chiqim: {data['chiqim']} so'm\n"
-            f"🟨 Sof foyda: {foyda} so'm"
+# DB INIT
+async def init_db():
+    async with aiosqlite.connect("mors.db") as db:
+        await db.execute("""
+        CREATE TABLE IF NOT EXISTS sales (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            item TEXT,
+            qty INTEGER,
+            price INTEGER,
+            time TEXT
         )
-        bot.send_message(message.chat.id, text, parse_mode="Markdown")
-        
-    elif message.text == "➕ Kirim qo'shish":
-        msg = bot.send_message(message.chat.id, "Kirim miqdorini kiriting (faqat raqamda):")
-        bot.register_next_step_handler(msg, process_kirim)
-        
-    elif message.text == "➖ Chiqim qo'shish":
-        msg = bot.send_message(message.chat.id, "Chiqim miqdorini kiriting (faqat raqamda):")
-        bot.register_next_step_handler(msg, process_chiqim)
+        """)
+        await db.commit()
 
-def process_kirim(message):
-    try:
-        amount = int(message.text)
-        data = load_data()
-        data["kirim"] += amount
-        save_data(data)
-        bot.send_message(message.chat.id, f"✅ {amount} so'm kirim muvaffaqiyatli saqlindi!")
-    except ValueError:
-        bot.send_message(message.chat.id, "❌ Xato! Iltimos, faqat raqam kiriting.")
+# START
+@router.message(F.text == "/start")
+async def start(msg: Message):
+    await msg.answer("🚀 Mors BOT ishga tushdi", reply_markup=menu())
 
-def process_chiqim(message):
-    try:
-        amount = int(message.text)
-        data = load_data()
-        data["chiqim"] += amount
-        save_data(data)
-        bot.send_message(message.chat.id, f"✅ {amount} so'm chiqim muvaffaqiyatli saqlindi!")
-    except ValueError:
-        bot.send_message(message.chat.id, "❌ Xato! Iltimos, faqat raqam kiriting.")
+# ITEM TANLASH
+@router.message(F.text.in_(PRICES.keys()))
+async def item(msg: Message):
+    user_state[msg.from_user.id] = msg.text
+    await msg.answer("🔢 Nechta sotding? raqam kiriting")
 
+# QTY SAQLASH (FIXED)
+@router.message(F.text.isdigit())
+async def save(msg: Message):
+    uid = msg.from_user.id
 
-# 4. BOTNI DOIMIY ISHGA TUSHIRISH (Polling)
-if __name__ == '__main__':
-    print("Bot muvaffaqiyatli ishga tushdi...")
-    bot.polling(none_stop=True)
+    if uid not in user_state:
+        return
+
+    item = user_state[uid]
+    qty = int(msg.text)
+    price = PRICES[item]
+    total = qty * price
+
+    async with aiosqlite.connect("mors.db") as db:
+        await db.execute(
+            "INSERT INTO sales(item, qty, price, time) VALUES(?,?,?,?)",
+            (item, qty, price, str(datetime.now()))
+        )
+        await db.commit()
+
+    await msg.answer(
+        "✅ Saqlandi!\n\n"
+        f"🛒 Mahsulot: {item}\n"
+        f"📦 Miqdor: {qty}\n"
+        f"💵 Jami: {total} so‘m"
+    )
+
+    del user_state[uid]
+
+# HISOBOT
+@router.message(F.text == "📊 hisobot")
+async def report(msg: Message):
+    async with aiosqlite.connect("mors.db") as db:
+        cur = await db.execute("SELECT SUM(qty * price) FROM sales")
+        total = (await cur.fetchone())[0] or 0
+
+        cur = await db.execute("SELECT COUNT(*) FROM sales")
+        count = (await cur.fetchone())[0]
+
+    await msg.answer(
+        f"📊 HISOBOT\n\n"
+        f"🧾 Sotuvlar soni: {count}\n"
+        f"💰 Umumiy tushum: {total} so‘m"
+    )
+
+# MAIN
+async def main():
+    await init_db()
+    dp.include_router(router)
+    await dp.start_polling(bot)
+
+if __name__ == "__main__":
+    asyncio.run(main())
