@@ -23,7 +23,7 @@ def run_server():
 threading.Thread(target=run_server, daemon=True).start()
 # ====================================================
 
-TOKEN = "YOUR_TOKEN_HERE"
+TOKEN = "8964012400:AAE4QLsxhG9gbKjmCz-GOpMh17gMNH77P2E"
 
 bot = Bot(token=TOKEN)
 dp = Dispatcher()
