@@ -7,7 +7,8 @@ import os
 from http.server import HTTPServer, BaseHTTPRequestHandler
 import threading
 
-# 1. RENDER UCHUN VEB-SERVER (Botingiz 24/7 tirik turishi uchun)
+# ====================================================
+# RENDER UCHUN SOXTA VEB-SERVER (24/7 Tirik saqlash uchun)
 class SimpleHTTPRequestHandler(BaseHTTPRequestHandler):
     def do_GET(self):
         self.send_response(200)
@@ -15,19 +16,16 @@ class SimpleHTTPRequestHandler(BaseHTTPRequestHandler):
         self.wfile.write(b"Bot is running!")
 
 def run_server():
-    # Render muhitidan portni oladi, topilmasa 10000 portda ishlaydi
+    # Render o'zi beradigan PORT-ni oladi, topilmasa 10000-portda ishlaydi
     port = int(os.environ.get("PORT", 10000))
     server = HTTPServer(('0.0.0.0', port), SimpleHTTPRequestHandler)
     server.serve_forever()
 
 # Serverni bot ishlashidan oldin alohida parallel oqimda yoqib yuboramiz
 threading.Thread(target=run_server, daemon=True).start()
+# ====================================================
 
-
-# 2. BOT VA DISPATCHER LOGIKASI
-# Render-dagi Environment Variables-ga kiritgan tokeningizni o'qiydi
-# Agar tokeningizni kod ichiga yozmoqchi bo'lsangiz, os.environ.get o'rniga shundoq "TOKENINIGIZ"ni yozib qo'yishingiz ham mumkin
-TOKEN = os.environ.get("BOT_TOKEN", "YOUR_TOKEN_HERE")
+TOKEN = "YOUR_TOKEN_HERE"
 
 bot = Bot(token=TOKEN)
 dp = Dispatcher()
@@ -43,7 +41,7 @@ PRICES = {
 
 user_state = {}
 
-# MENU DIZAYNI (Sizning chiroyli eski dizayningiz)
+# MENU
 def menu():
     return ReplyKeyboardMarkup(
         keyboard=[
