@@ -8,7 +8,7 @@ from http.server import HTTPServer, BaseHTTPRequestHandler
 import threading
 
 # ====================================================
-# RENDER UCHUN SOXTA VEB-SERVER (24/7 Tirik saqlash uchun)
+# RENDER UCHUN SOXTA VEB-SERVER
 class SimpleHTTPRequestHandler(BaseHTTPRequestHandler):
     def do_GET(self):
         self.send_response(200)
@@ -23,7 +23,8 @@ def run_server():
 threading.Thread(target=run_server, daemon=True).start()
 # ====================================================
 
-TOKEN = "8964012400:AAE4QLsxhG9gbKjmCz-GOpMh17gMNH77P2E"
+# ⚠️ BOT TOKENINGIZNI SHU YERGA YOZING
+TOKEN = "YOUR_BOT_TOKEN_HERE"
 
 bot = Bot(token=TOKEN)
 dp = Dispatcher()
@@ -51,10 +52,10 @@ def menu():
         resize_keyboard=True
     )
 
-# DATABASE INITIALIZATION
+# DB INITIALIZATION
 async def init_db():
     async with aiosqlite.connect("mors.db") as db:
-        # sales jadvaliga day_num (kun raqami) ustunini qo'shdik
+        # Eski bazani yangi ustun bilan to'g'rilaymiz
         await db.execute("""
         CREATE TABLE IF NOT EXISTS sales (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -65,25 +66,29 @@ async def init_db():
             time TEXT
         )
         """)
-        # joriy aktiv kunni saqlab turish uchun sozlamalar jadvali
+        # Agar eski bazada day_num ustuni bo'lmasa, uni majburiy qo'shamiz xato bermasligi uchun
+        try:
+            await db.execute("ALTER TABLE sales ADD COLUMN day_num INTEGER DEFAULT 1")
+        except:
+            pass # Agar ustun allaqachon bo'lsa, xatoni o'tkazib yuboradi
+            
         await db.execute("""
         CREATE TABLE IF NOT EXISTS settings (
             key TEXT PRIMARY KEY,
             value TEXT
         )
         """)
-        # Agar birinchi marta ishga tushayotgan bo'lsa, kunni 1-kun deb belgilaymiz
         await db.execute("INSERT OR IGNORE INTO settings (key, value) VALUES ('current_day', '1')")
         await db.commit()
 
-# Joriy kun raqamini bazadan olish funksiyasi
+# Joriy kunni olish
 async def get_current_day():
     async with aiosqlite.connect("mors.db") as db:
         cur = await db.execute("SELECT value FROM settings WHERE key = 'current_day'")
         row = await cur.fetchone()
         return int(row[0]) if row else 1
 
-# KUNNI BOSHLASH / START
+# START
 @router.message(F.text == "/start")
 async def start(msg: Message):
     current_day = await get_current_day()
@@ -98,9 +103,9 @@ async def start(msg: Message):
 @router.message(F.text.in_(PRICES.keys()))
 async def item(msg: Message):
     user_state[msg.from_user.id] = msg.text
-    await msg.answer(f"🔢 *{msg.text}* dan nechta sotdingiz? Raqam kiriting:")
+    await msg.answer("🔢 Nechta sotding? raqam kiriting")
 
-# MIQDORNI SAQLASH
+# MIQDORNI HISOBLASH VA BAZAGA SAQLASH
 @router.message(F.text.isdigit())
 async def save(msg: Message):
     uid = msg.from_user.id
@@ -121,17 +126,17 @@ async def save(msg: Message):
         )
         await db.commit()
 
+    # Aynan siz so'ragandek chiroyli hisoblab javob qaytarish qismi:
     await msg.answer(
-        f"✅ *{current_day}-kun* hisobiga saqlandi!\n\n"
+        f"✅ Saqlandi!\n\n"
         f"🛒 Mahsulot: {item}\n"
-        f"📦 Miqdor: {qty} ta\n"
-        f"💵 Jami: {total} so‘m",
-        parse_mode="Markdown"
+        f"📦 Miqdor: {qty}\n"
+        f"💵 Jami: {total:,} so‘m"
     )
 
     del user_state[uid]
 
-# KUNNI YAKUNLASH (Keyingi kunga o'tish)
+# KUNNI YAKUNLASH
 @router.message(F.text == "🏁 Kunni yakunlash")
 async def finish_day(msg: Message):
     current_day = await get_current_day()
@@ -147,11 +152,11 @@ async def finish_day(msg: Message):
         parse_mode="Markdown"
     )
 
-# KUNLAR KESIMIDA BATAFSIL HISOBOT
+# HISOBOT
 @router.message(F.text == "📊 hisobot")
 async def report(msg: Message):
     async with aiosqlite.connect("mors.db") as db:
-        # Har bir kun uchun alohida umumiy summani hisoblab chiqarish query'si
+        # Kunlar kesimida guruhlash
         cur = await db.execute("""
             SELECT day_num, SUM(qty * price) 
             FROM sales 
@@ -160,7 +165,7 @@ async def report(msg: Message):
         """)
         rows = await cur.fetchall()
 
-        # Umumiy jami tushum
+        # Jami tushum
         total_cur = await db.execute("SELECT SUM(qty * price) FROM sales")
         grand_total = (await total_cur.fetchone())[0] or 0
 
@@ -169,16 +174,16 @@ async def report(msg: Message):
     report_text = "📊 *KUNLIK SAVDO HISOBOTI*\n"
     report_text += "───────────────────\n"
     
-    if not rows:
+    if not rows or grand_total == 0:
         report_text += "Hozircha hech qaysi kunda savdo qilinmadi.\n"
     else:
         for row in rows:
-            day = row[0]
+            day = row[0] if row[0] is not None else 1
             day_sum = row[1] or 0
-            report_text += f"📅 *{day}-kun:*  {day_sum:,} so‘m\n"
+            report_text += f"📅 *{day}-kun:* {day_sum:,} so‘m\n"
             
     report_text += "───────────────────\n"
-    report_text += f" joriy holat: *{current_day}-kun* ketmoqda.\n"
+    report_text += f"ℹ️ Joriy holat: *{current_day}-kun* ketmoqda.\n"
     report_text += f"💰 *Umumiy tushum:* {grand_total:,} so‘m"
 
     await msg.answer(report_text, parse_mode="Markdown")
