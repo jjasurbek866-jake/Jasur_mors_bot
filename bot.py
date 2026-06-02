@@ -23,7 +23,7 @@ def run_server():
 threading.Thread(target=run_server, daemon=True).start()
 # ====================================================
 
-# ⚠️ BOT TOKENINGIZNI SHU YERGA YOZING
+# ⚠️ BOT TOKENINGIZNI SHU YERGA ANIQ QILIB YOZING
 TOKEN = "8964012400:AAE4QLsxhG9gbKjmCz-GOpMh17gMNH77P2E"
 
 bot = Bot(token=TOKEN)
@@ -38,9 +38,10 @@ PRICES = {
     "🛢 5L": 25000
 }
 
+# Xotirani xavfsiz boshqarish global lug'ati
 user_state = {}
 
-# MENU
+# MENU DIZAYNI (O'zingizga yoqqan holatda)
 def menu():
     return ReplyKeyboardMarkup(
         keyboard=[
@@ -55,7 +56,6 @@ def menu():
 # DB INITIALIZATION
 async def init_db():
     async with aiosqlite.connect("mors.db") as db:
-        # Eski bazani yangi ustun bilan to'g'rilaymiz
         await db.execute("""
         CREATE TABLE IF NOT EXISTS sales (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -66,11 +66,11 @@ async def init_db():
             time TEXT
         )
         """)
-        # Agar eski bazada day_num ustuni bo'lmasa, uni majburiy qo'shamiz xato bermasligi uchun
+        # Agar eski bazadan qolib ketgan bo'lsa xato bermasligi uchun tekshiruv
         try:
             await db.execute("ALTER TABLE sales ADD COLUMN day_num INTEGER DEFAULT 1")
         except:
-            pass # Agar ustun allaqachon bo'lsa, xatoni o'tkazib yuboradi
+            pass
             
         await db.execute("""
         CREATE TABLE IF NOT EXISTS settings (
@@ -88,7 +88,7 @@ async def get_current_day():
         row = await cur.fetchone()
         return int(row[0]) if row else 1
 
-# START
+# START / KUNNI BOSHLASH
 @router.message(F.text == "/start")
 async def start(msg: Message):
     current_day = await get_current_day()
@@ -99,42 +99,46 @@ async def start(msg: Message):
         parse_mode="Markdown"
     )
 
-# MAHSULOT TANLANGANDA
+# MAHSULOT TANLANGANDA (Xotiraga qat'iy yozamiz)
 @router.message(F.text.in_(PRICES.keys()))
 async def item(msg: Message):
     user_state[msg.from_user.id] = msg.text
-    await msg.answer("🔢 Nechta sotding? raqam kiriting")
+    await msg.answer(f"🔢 *{msg.text}* dan nechta sotdingiz? Raqam kiriting:")
 
-# MIQDORNI HISOBLASH VA BAZAGA SAQLASH
-@router.message(F.text.isdigit())
+# MIQDORNI USHLASH VA HISOBLASH (To'g'rilangan qism)
+@router.message(lambda msg: msg.text.isdigit())
 async def save(msg: Message):
     uid = msg.from_user.id
 
+    # Agar foydalanuvchi mahsulot tanlamasdan srazi raqam yozsa, e'tibor bermaydi
     if uid not in user_state:
         return
 
-    item = user_state[uid]
+    selected_item = user_state[uid]
     qty = int(msg.text)
-    price = PRICES[item]
+    price = PRICES[selected_item]
     total = qty * price
     current_day = await get_current_day()
 
+    # Bazaga yozish
     async with aiosqlite.connect("mors.db") as db:
         await db.execute(
             "INSERT INTO sales(day_num, item, qty, price, time) VALUES(?,?,?,?,?)",
-            (current_day, item, qty, price, str(datetime.now()))
+            (current_day, selected_item, qty, price, str(datetime.now()))
         )
         await db.commit()
 
-    # Aynan siz so'ragandek chiroyli hisoblab javob qaytarish qismi:
+    # Siz kutgan o'sha eski chiroyli hisob-kitob dizayni
     await msg.answer(
         f"✅ Saqlandi!\n\n"
-        f"🛒 Mahsulot: {item}\n"
-        f"📦 Miqdor: {qty}\n"
+        f"🛒 Mahsulot: {selected_item}\n"
+        f"📦 Miqdor: {qty} ta\n"
         f"💵 Jami: {total:,} so‘m"
     )
 
-    del user_state[uid]
+    # Holatni tozalaymiz, keyingi safar yangi mahsulot tanlashi uchun
+    if uid in user_state:
+        del user_state[uid]
 
 # KUNNI YAKUNLASH
 @router.message(F.text == "🏁 Kunni yakunlash")
@@ -152,11 +156,10 @@ async def finish_day(msg: Message):
         parse_mode="Markdown"
     )
 
-# HISOBOT
+# HISOBOT (KUNLAR KESIMIDA)
 @router.message(F.text == "📊 hisobot")
 async def report(msg: Message):
     async with aiosqlite.connect("mors.db") as db:
-        # Kunlar kesimida guruhlash
         cur = await db.execute("""
             SELECT day_num, SUM(qty * price) 
             FROM sales 
@@ -165,16 +168,15 @@ async def report(msg: Message):
         """)
         rows = await cur.fetchall()
 
-        # Jami tushum
         total_cur = await db.execute("SELECT SUM(qty * price) FROM sales")
-        grand_total = (await total_cur.fetchone())[0] or 0
+        grand_total = (await total_cur_uptime) = (await total_cur.fetchone())[0] or 0
 
     current_day = await get_current_day()
     
     report_text = "📊 *KUNLIK SAVDO HISOBOTI*\n"
     report_text += "───────────────────\n"
     
-    if not rows or grand_total == 0:
+    if not rows:
         report_text += "Hozircha hech qaysi kunda savdo qilinmadi.\n"
     else:
         for row in rows:
@@ -188,7 +190,7 @@ async def report(msg: Message):
 
     await msg.answer(report_text, parse_mode="Markdown")
 
-# MAIN
+# MAIN RUNNER
 async def main():
     await init_db()
     dp.include_router(router)
