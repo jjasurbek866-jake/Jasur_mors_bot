@@ -24,7 +24,7 @@ threading.Thread(target=run_server, daemon=True).start()
 # ====================================================
 
 # ⚠️ BOT TOKENINGIZNI SHU YERGA YOZING
-TOKEN = "YOUR_BOT_TOKEN_HERE"
+TOKEN = "8964012400:AAE4QLsxhG9gbKjmCz-GOpMh17gMNH77P2E"
 
 bot = Bot(token=TOKEN)
 dp = Dispatcher()
