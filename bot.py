@@ -8,12 +8,12 @@ from http.server import HTTPServer, BaseHTTPRequestHandler
 import threading
 
 # ====================================================
-# RENDER UCHUN SOXTA VEB-SERVER
+# RENDER UCHUN VEB-SERVER (PORT BAND QILISH UCHUN)
 class SimpleHTTPRequestHandler(BaseHTTPRequestHandler):
     def do_GET(self):
         self.send_response(200)
         self.end_headers()
-        self.wfile.write(b"Bot is rugit push origin mainnning!")
+        self.wfile.write(b"Mors Bot is running successfully!")
 
 def run_server():
     port = int(os.environ.get("PORT", 10000))
@@ -24,7 +24,7 @@ threading.Thread(target=run_server, daemon=True).start()
 # ====================================================
 
 # ⚠️ BOT TOKENINGIZNI SHU YERGA YOZING
-TOKEN = "8964012400:AAE4QLsxhG9gbKjmCz-GOpMh17gMNH77P2E"
+TOKEN = "YOUR_BOT_TOKEN_HERE"
 
 bot = Bot(token=TOKEN)
 dp = Dispatcher()
@@ -38,19 +38,18 @@ PRICES = {
     "🛢 5L": 25000
 }
 
-# Chiqim va Litr xarajatlar matritsasi
-# format: (1 dona uchun chiqim so'mda, 1 dona uchun sarflanadigan litr)
+# Formula: (chiqim_puli, sarflangan_litr)
 FORMULA = {
-    "☕ katta": (333.33, 0.334),  # 3 tasi ~1L va 1000 so'm chiqim
-    "🥤 kichik": (250.0, 0.25),    # 4 tasi 1L va 1000 so'm chiqim
-    "🧴 1L": (1000.0, 1.0),       # 1L = 1000 so'm chiqim
-    "🧴 1.5L": (1500.0, 1.5),     # 1.5L = 1500 so'm chiqim
-    "🛢 5L": (5000.0, 5.0)        # 5L = 5000 so'm chiqim
+    "☕ katta": (333.33, 0.334),  
+    "🥤 kichik": (250.0, 0.25),    
+    "🧴 1L": (1000.0, 1.0),       
+    "🧴 1.5L": (1500.0, 1.5),     
+    "🛢 5L": (5000.0, 5.0)        
 }
 
 user_state = {}
 
-# MENU DIZAYNI
+# ASOSIY MENU
 def menu():
     return ReplyKeyboardMarkup(
         keyboard=[
@@ -77,7 +76,6 @@ async def init_db():
             time TEXT
         )
         """)
-        # Agar eski jadval bo'lsa yangi ustunlarni tekshirib qo'shib qo'yamiz
         try:
             await db.execute("ALTER TABLE sales ADD COLUMN chiqim REAL DEFAULT 0")
             await db.execute("ALTER TABLE sales ADD COLUMN litr REAL DEFAULT 0")
@@ -93,23 +91,22 @@ async def init_db():
         await db.execute("INSERT OR IGNORE INTO settings (key, value) VALUES ('current_day', '1')")
         await db.commit()
 
-# Joriy kunni olish
 async def get_current_day():
     async with aiosqlite.connect("mors.db") as db:
         cur = await db.execute("SELECT value FROM settings WHERE key = 'current_day'")
         row = await cur.fetchone()
         return int(row[0]) if row else 1
 
-# START (Siz xohlagandek har safar 1-kun qilib yangilaydi)
+# START (Sinov rejimida har doim 1-kundan toza boshlaydi)
 @router.message(F.text == "/start")
 async def start(msg: Message):
     async with aiosqlite.connect("mors.db") as db:
         await db.execute("UPDATE settings SET value = '1' WHERE key = 'current_day'")
-        await db.execute("DELETE FROM sales") # Test qilish oson bo'lishi uchun eski savdolarni tozalaydi
+        await db.execute("DELETE FROM sales")
         await db.commit()
         
     await msg.answer(
-        "☀️ *1-kun* boshlandi (Tizim qayta yuklandi)!\n\n"
+        "☀️ *1-kun* boshlandi!\n\n"
         "Bugungi sotuvlarni kiritishingiz mumkin. Quyidagi mahsulotlardan birini tanlang:",
         reply_markup=menu(),
         parse_mode="Markdown"
@@ -119,7 +116,7 @@ async def start(msg: Message):
 @router.message(F.text.in_(PRICES.keys()))
 async def item(msg: Message):
     user_state[msg.from_user.id] = msg.text
-    await msg.answer("🔢 Nechta sotding? raqam kiriting")
+    await msg.answer(f"🔢 Nechta sotdingiz? Raqam kiriting:")
 
 # MIQDORNI USHLASH VA HISOBLASH
 @router.message(lambda msg: msg.text.isdigit())
@@ -134,7 +131,6 @@ async def save(msg: Message):
     price = PRICES[selected_item]
     total = qty * price
     
-    # Chiqim va litrni formula asosida hisoblash
     one_chiqim, one_litr = FORMULA[selected_item]
     total_chiqim = round(one_chiqim * qty, 2)
     total_litr = round(one_litr * qty, 2)
@@ -175,11 +171,10 @@ async def finish_day(msg: Message):
         parse_mode="Markdown"
     )
 
-# MUKAMMAL HISOBOT (Kirim, Chiqim, Sof Foyda va Litr nazorati)
+# HISOBOT
 @router.message(F.text == "📊 hisobot")
 async def report(msg: Message):
     async with aiosqlite.connect("mors.db") as db:
-        # Kunlar bo'yicha Kirim, Chiqim va Litrni guruhlash
         cur = await db.execute("""
             SELECT day_num, SUM(qty * price), SUM(chiqim), SUM(litr)
             FROM sales 
@@ -227,9 +222,11 @@ async def report(msg: Message):
 
     await msg.answer(report_text, parse_mode="Markdown")
 
-# MAIN
+# MAIN RUNNER WITH WEBHOOK CLEARING
 async def main():
     await init_db()
+    # Eski telebot yoki boshqa tizim qoldiqlarini Telegram serveridan o'chirib tashlaymiz
+    await bot.delete_webhook(drop_pending_updates=True)
     dp.include_router(router)
     await dp.start_polling(bot)
 
