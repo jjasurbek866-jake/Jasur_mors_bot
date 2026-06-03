@@ -24,7 +24,7 @@ threading.Thread(target=run_server, daemon=True).start()
 # ====================================================
 
 # ⚠️ BOT TOKENINGIZNI SHU YERGA TO'G'RI QO'YING
-TOKEN = "6463994781:AAF_..." # BotFather bergan o'sha yangi tokeningizni to'liq yozing
+TOKEN = "8953766480:AAEWjsI_WpB8gXusHLl2Nr6XBAhfcUhW2oI" # BotFather bergan o'sha yangi tokeningizni to'liq yozing
 
 bot = Bot(token=TOKEN)
 dp = Dispatcher()
