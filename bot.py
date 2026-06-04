@@ -24,13 +24,12 @@ threading.Thread(target=run_server, daemon=True).start()
 # ====================================================
 
 # ⚠️ BOT TOKENINGIZNI SHU YERGA TO'G'RI QO'YING
-TOKEN = "8964012400:AAGjzHhuoQvfac1IVkBWa_rkorVjH7WdJmo" 
+TOKEN = "6463994781:AAF_..." 
 
 bot = Bot(token=TOKEN)
 dp = Dispatcher()
 router = Router()
 
-# Sotish narxlari
 PRICES = {
     "☕ katta": 3000,
     "🥤 kichik": 2000,
@@ -39,7 +38,6 @@ PRICES = {
     "🛢 5L": 25000
 }
 
-# Aniq chiqim va litr formulasi: (1 dona uchun chiqim so'mda, 1 dona uchun litr)
 FORMULA = {
     "☕ katta": (333.33, 0.334),  
     "🥤 kichik": (250.0, 0.25),   
@@ -49,6 +47,9 @@ FORMULA = {
 }
 
 user_state = {}
+
+# 📂 BAZA NOMI O'ZGARTIRILDI (Eski tiqilib qolgan fayldan qutulish uchun)
+DB_NAME = "mors_biznes.db"
 
 def menu():
     return ReplyKeyboardMarkup(
@@ -62,8 +63,7 @@ def menu():
     )
 
 async def init_db():
-    async with aiosqlite.connect("mors.db") as db:
-        # Yangi ustunlar bilan jadvalni mutlaqo xavfsiz ochamiz
+    async with aiosqlite.connect(DB_NAME) as db:
         await db.execute("""
         CREATE TABLE IF NOT EXISTS sales (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -76,14 +76,6 @@ async def init_db():
             time TEXT
         )
         """)
-        # Agar eski bazadan ustun qolib ketgan bo'lsa, xato bermasligi uchun majburiy qo'shish buyruqlari
-        try:
-            await db.execute("ALTER TABLE sales ADD COLUMN chiqim REAL DEFAULT 0")
-        except: pass
-        try:
-            await db.execute("ALTER TABLE sales ADD COLUMN litr REAL DEFAULT 0")
-        except: pass
-
         await db.execute("""
         CREATE TABLE IF NOT EXISTS settings (
             key TEXT PRIMARY KEY,
@@ -94,15 +86,14 @@ async def init_db():
         await db.commit()
 
 async def get_current_day():
-    async with aiosqlite.connect("mors.db") as db:
+    async with aiosqlite.connect(DB_NAME) as db:
         cur = await db.execute("SELECT value FROM settings WHERE key = 'current_day'")
         row = await cur.fetchone()
         return int(row[0]) if row else 1
 
 @router.message(F.text == "/start")
 async def start(msg: Message):
-    async with aiosqlite.connect("mors.db") as db:
-        # Har safar start bosilganda test qilish oson bo'lishi uchun bazani tozalaydi
+    async with aiosqlite.connect(DB_NAME) as db:
         await db.execute("UPDATE settings SET value = '1' WHERE key = 'current_day'")
         await db.execute("DELETE FROM sales")
         await db.commit()
@@ -130,7 +121,7 @@ async def save(msg: Message):
     
     current_day = await get_current_day()
 
-    async with aiosqlite.connect("mors.db") as db:
+    async with aiosqlite.connect(DB_NAME) as db:
         await db.execute(
             "INSERT INTO sales(day_num, item, qty, price, chiqim, litr, time) VALUES(?,?,?,?,?,?,?)",
             (current_day, selected_item, qty, price, total_chiqim, total_litr, str(datetime.now()))
@@ -151,14 +142,14 @@ async def save(msg: Message):
 async def finish_day(msg: Message):
     current_day = await get_current_day()
     next_day = current_day + 1
-    async with aiosqlite.connect("mors.db") as db:
+    async with aiosqlite.connect(DB_NAME) as db:
         await db.execute("UPDATE settings SET value = ? WHERE key = 'current_day'", (str(next_day),))
         await db.commit()
     await msg.answer(f"🏁 *{current_day}-kun* yakunlandi!\n🚀 *{next_day}-kun* ochildi.", parse_mode="Markdown")
 
 @router.message(F.text == "📊 hisobot")
 async def report(msg: Message):
-    async with aiosqlite.connect("mors.db") as db:
+    async with aiosqlite.connect(DB_NAME) as db:
         cur = await db.execute("""
             SELECT day_num, SUM(qty * price), SUM(chiqim), SUM(litr) 
             FROM sales 
