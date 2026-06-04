@@ -23,12 +23,11 @@ def run_server():
 threading.Thread(target=run_server, daemon=True).start()
 # ====================================================
 
-# ⚠️ BOT TOKENINGIZNI SHU YERGA QO'YING
+# ⚠️ BOT TOKENINGIZNI SHU YERGA TO'G'RI QO'YING
 TOKEN = "8964012400:AAGjzHhuoQvfac1IVkBWa_rkorVjH7WdJmo" 
 
 bot = Bot(token=TOKEN)
 dp = Dispatcher()
-
 router = Router()
 
 # Sotish narxlari
@@ -40,13 +39,13 @@ PRICES = {
     "🛢 5L": 25000
 }
 
-# 📈 Siz aytgan aniq chiqim va litr formulasi: (1 dona uchun chiqim so'mda, 1 dona uchun litr)
+# Aniq chiqim va litr formulasi: (1 dona uchun chiqim so'mda, 1 dona uchun litr)
 FORMULA = {
-    "☕ katta": (333.33, 0.334),  # 3 tasi ~1L va 1000 so'm chiqim (1000 / 3)
-    "🥤 kichik": (250.0, 0.25),   # 4 tasi 1L va 1000 so'm chiqim (1000 / 4)
-    "🧴 1L": (1000.0, 1.0),       # 1L mors = 1000 so'm chiqim
-    "🧴 1.5L": (1500.0, 1.5),     # 1.5L mors = 1500 so'm chiqim
-    "🛢 5L": (5000.0, 5.0)        # 5L mors = 5000 so'm chiqim
+    "☕ katta": (333.33, 0.334),  
+    "🥤 kichik": (250.0, 0.25),   
+    "🧴 1L": (1000.0, 1.0),       
+    "🧴 1.5L": (1500.0, 1.5),     
+    "🛢 5L": (5000.0, 5.0)        
 }
 
 user_state = {}
@@ -64,7 +63,7 @@ def menu():
 
 async def init_db():
     async with aiosqlite.connect("mors.db") as db:
-        # Jadvalga chiqim va litr ustunlarini mutlaqo xavfsiz yaratamiz
+        # Yangi ustunlar bilan jadvalni mutlaqo xavfsiz ochamiz
         await db.execute("""
         CREATE TABLE IF NOT EXISTS sales (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -77,7 +76,7 @@ async def init_db():
             time TEXT
         )
         """)
-        # Agar eski bazadan qoldiq bo'lsa xato bermasligi uchun tekshirib qo'shish
+        # Agar eski bazadan ustun qolib ketgan bo'lsa, xato bermasligi uchun majburiy qo'shish buyruqlari
         try:
             await db.execute("ALTER TABLE sales ADD COLUMN chiqim REAL DEFAULT 0")
         except: pass
@@ -103,7 +102,7 @@ async def get_current_day():
 @router.message(F.text == "/start")
 async def start(msg: Message):
     async with aiosqlite.connect("mors.db") as db:
-        # Sinab ko'rayotganingiz uchun har start bosganda 1-kun qilib tozalaydi
+        # Har safar start bosilganda test qilish oson bo'lishi uchun bazani tozalaydi
         await db.execute("UPDATE settings SET value = '1' WHERE key = 'current_day'")
         await db.execute("DELETE FROM sales")
         await db.commit()
@@ -125,7 +124,6 @@ async def save(msg: Message):
     price = PRICES[selected_item]
     total = qty * price
     
-    # Matematik chiqim va litr hisobi
     one_chiqim, one_litr = FORMULA[selected_item]
     total_chiqim = round(one_chiqim * qty, 2)
     total_litr = round(one_litr * qty, 2)
@@ -161,7 +159,6 @@ async def finish_day(msg: Message):
 @router.message(F.text == "📊 hisobot")
 async def report(msg: Message):
     async with aiosqlite.connect("mors.db") as db:
-        # Kirim, Chiqim va Litrni jamlab olish
         cur = await db.execute("""
             SELECT day_num, SUM(qty * price), SUM(chiqim), SUM(litr) 
             FROM sales 
