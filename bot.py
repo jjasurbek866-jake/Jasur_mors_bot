@@ -28,6 +28,7 @@ TOKEN = "8964012400:AAGjzHhuoQvfac1IVkBWa_rkorVjH7WdJmo"
 
 bot = Bot(token=TOKEN)
 dp = Dispatcher()
+
 router = Router()
 
 # Sotish narxlari
