@@ -8,12 +8,12 @@ from http.server import HTTPServer, BaseHTTPRequestHandler
 import threading
 
 # ====================================================
-# RENDER VEB SERVERI (Bot o'chib qolmasligi uchun)
+# RENDER VEB SERVERI
 class SimpleHTTPRequestHandler(BaseHTTPRequestHandler):
     def do_GET(self):
         self.send_response(200)
         self.end_headers()
-        self.wfile.write(b"Mors Bot is running!")
+        self.wfile.write(b"Mors Bot is running successfully!")
 
 def run_server():
     port = int(os.environ.get("PORT", 10000))
@@ -23,20 +23,29 @@ def run_server():
 threading.Thread(target=run_server, daemon=True).start()
 # ====================================================
 
-# ⚠️ BOT TOKENINGIZNI SHU YERGA TO'G'RI QO'YING
-TOKEN = "8964012400:AAGjzHhuoQvfac1IVkBWa_rkorVjH7WdJmo" # O'zingizning yangi tokeningiz tursin
+# ⚠️ BOT TOKENINGIZNI SHU YERGA QO'YING
+TOKEN = "6463994781:AAF_..." 
 
 bot = Bot(token=TOKEN)
 dp = Dispatcher()
 router = Router()
 
-# Narxlar (Faqat tushum hisoblanadi, xarajatlarsiz)
+# Sotish narxlari
 PRICES = {
     "☕ katta": 3000,
     "🥤 kichik": 2000,
     "🧴 1L": 5000,
     "🧴 1.5L": 8000,
     "🛢 5L": 25000
+}
+
+# 📈 Siz aytgan aniq chiqim va litr formulasi: (1 dona uchun chiqim so'mda, 1 dona uchun litr)
+FORMULA = {
+    "☕ katta": (333.33, 0.334),  # 3 tasi ~1L va 1000 so'm chiqim (1000 / 3)
+    "🥤 kichik": (250.0, 0.25),   # 4 tasi 1L va 1000 so'm chiqim (1000 / 4)
+    "🧴 1L": (1000.0, 1.0),       # 1L mors = 1000 so'm chiqim
+    "🧴 1.5L": (1500.0, 1.5),     # 1.5L mors = 1500 so'm chiqim
+    "🛢 5L": (5000.0, 5.0)        # 5L mors = 5000 so'm chiqim
 }
 
 user_state = {}
@@ -53,15 +62,8 @@ def menu():
     )
 
 async def init_db():
-    # 🛠 ESKI BAZADAN QOLGAN XATOLIKLARNI TOZALASH UCHUN MAJBURIY CHORA
-    try:
-        if os.path.exists("mors.db"):
-            os.remove("mors.db") # Eski xato bazani kodning o'zi majburlab o'chirib tashlaydi!
-    except:
-        pass
-
     async with aiosqlite.connect("mors.db") as db:
-        # Mutlaqo toza va yangi jadval noldan ochiladi
+        # Jadvalga chiqim va litr ustunlarini mutlaqo xavfsiz yaratamiz
         await db.execute("""
         CREATE TABLE IF NOT EXISTS sales (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -69,9 +71,19 @@ async def init_db():
             item TEXT,
             qty INTEGER,
             price INTEGER,
+            chiqim REAL DEFAULT 0,
+            litr REAL DEFAULT 0,
             time TEXT
         )
         """)
+        # Agar eski bazadan qoldiq bo'lsa xato bermasligi uchun tekshirib qo'shish
+        try:
+            await db.execute("ALTER TABLE sales ADD COLUMN chiqim REAL DEFAULT 0")
+        except: pass
+        try:
+            await db.execute("ALTER TABLE sales ADD COLUMN litr REAL DEFAULT 0")
+        except: pass
+
         await db.execute("""
         CREATE TABLE IF NOT EXISTS settings (
             key TEXT PRIMARY KEY,
@@ -90,11 +102,11 @@ async def get_current_day():
 @router.message(F.text == "/start")
 async def start(msg: Message):
     async with aiosqlite.connect("mors.db") as db:
-        # 🔄 Har safar start bosilganda 1-kunga qaytaradi va bazani tozalaydi
+        # Sinab ko'rayotganingiz uchun har start bosganda 1-kun qilib tozalaydi
         await db.execute("UPDATE settings SET value = '1' WHERE key = 'current_day'")
         await db.execute("DELETE FROM sales")
         await db.commit()
-    await msg.answer("☀️ *1-kun* boshlandi! Mahsulotni tanlang:", reply_markup=menu(), parse_mode="Markdown")
+    await msg.answer("☀️ *1-kun* boshlandi (Sinov rejimi)!\nMahsulotni tanlang:", reply_markup=menu(), parse_mode="Markdown")
 
 @router.message(F.text.in_(PRICES.keys()))
 async def item(msg: Message):
@@ -112,17 +124,26 @@ async def save(msg: Message):
     price = PRICES[selected_item]
     total = qty * price
     
+    # Matematik chiqim va litr hisobi
+    one_chiqim, one_litr = FORMULA[selected_item]
+    total_chiqim = round(one_chiqim * qty, 2)
+    total_litr = round(one_litr * qty, 2)
+    
     current_day = await get_current_day()
 
     async with aiosqlite.connect("mors.db") as db:
         await db.execute(
-            "INSERT INTO sales(day_num, item, qty, price, time) VALUES(?,?,?,?,?)",
-            (current_day, selected_item, qty, price, str(datetime.now()))
+            "INSERT INTO sales(day_num, item, qty, price, chiqim, litr, time) VALUES(?,?,?,?,?,?,?)",
+            (current_day, selected_item, qty, price, total_chiqim, total_litr, str(datetime.now()))
         )
         await db.commit()
 
     await msg.answer(
-        f"✅ Saqlandi!\n\n🛒 Mahsulot: {selected_item}\n📦 Miqdor: {qty} ta\n💵 Jami: {total:,} so‘m"
+        f"✅ Saqlandi!\n\n"
+        f"🛒 Mahsulot: {selected_item}\n"
+        f"📦 Miqdor: {qty} ta\n"
+        f"💵 Jami tushum: {total:,} so‘m\n"
+        f"📉 Ishlatilgan mors: {total_litr} litr"
     )
     if uid in user_state:
         del user_state[uid]
@@ -139,22 +160,46 @@ async def finish_day(msg: Message):
 @router.message(F.text == "📊 hisobot")
 async def report(msg: Message):
     async with aiosqlite.connect("mors.db") as db:
-        cur = await db.execute("SELECT day_num, SUM(qty * price) FROM sales GROUP BY day_num ORDER BY day_num ASC")
+        # Kirim, Chiqim va Litrni jamlab olish
+        cur = await db.execute("""
+            SELECT day_num, SUM(qty * price), SUM(chiqim), SUM(litr) 
+            FROM sales 
+            GROUP BY day_num 
+            ORDER BY day_num ASC
+        """)
         rows = await cur.fetchall()
 
     current_day = await get_current_day()
-    report_text = "📊 *KUNLIK SAVDO HISOBOTI*\n───────────────────\n"
-    grand_tushum = 0
+    report_text = "📊 *KUNLIK BIZNES HISOBOTI*\n───────────────────\n"
+    grand_kirim, grand_chiqim, grand_litr = 0, 0, 0
     
     if not rows:
         report_text += "Hozircha savdo ma'lumotlari yo'q.\n"
     else:
         for row in rows:
-            day, day_tushum = row[0] or 1, row[1] or 0
-            grand_tushum += day_tushum
-            report_text += f"📅 *{day}-kun:* {day_tushum:,} so‘m\n"
+            day = row[0] or 1
+            day_kirim = row[1] or 0
+            day_chiqim = int(row[2] or 0)
+            day_litr = round(row[3] or 0, 2)
+            day_foyda = day_kirim - day_chiqim
             
-    report_text += f"───────────────────\nℹ️ Joriy holat: {current_day}-kun ketmoqda.\n💰 *Umumiy tushum:* {grand_tushum:,} so‘m"
+            grand_kirim += day_kirim
+            grand_chiqim += day_chiqim
+            grand_litr += day_litr
+            
+            report_text += f"📅 *{day}-kun:* \n"
+            report_text += f"   💰 Tushum: {day_kirim:,} so‘m\n"
+            report_text += f"   📉 Xarajat: {day_chiqim:,} so‘m\n"
+            report_text += f"   💵 Sof Foyda: {day_foyda:,} so‘m\n"
+            report_text += f"   🛢 Sarflangan mors: *{day_litr} litr*\n\n"
+            
+    report_text += f"───────────────────\nℹ️ Joriy holat: {current_day}-kun.\n"
+    report_text += f"📊 *UMUMIY YAKUN:* \n"
+    report_text += f"   💵 Jami tushum: {grand_kirim:,} so‘m\n"
+    report_text += f"   💸 Jami xarajat: {grand_chiqim:,} so‘m\n"
+    report_text += f"   💎 JAMI SOF FOYDA: {(grand_kirim - grand_chiqim):,} so‘m\n"
+    report_text += f"   🧪 JAMI SOTILGAN MORS: *{round(grand_litr, 2)} LITR*"
+    
     await msg.answer(report_text, parse_mode="Markdown")
 
 async def main():
