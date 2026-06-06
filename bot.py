@@ -24,31 +24,31 @@ threading.Thread(target=run_server, daemon=True).start()
 # ====================================================
 
 # ⚠️ BOT TOKENINGIZNI SHU YERGA TO'G'RI QO'YING
-TOKEN = "8964012400:AAGjzHhuoQvfac1IVkBWa_rkorVjH7WdJmo" 
+TOKEN = "6463994781:AAF_..." 
 
 bot = Bot(token=TOKEN)
 dp = Dispatcher()
 router = Router()
 
+# 💰 SOTISH NARXLARI (Oldingi safar o'zgartirganimizdek turibdi)
 PRICES = {
     "☕ katta": 3000,
     "🥤 kichik": 2000,
-    "🧴 1L": 5000,
-    "🧴 1.5L": 8000,
-    "🛢 5L": 25000
+    "🧴 1L": 7000,
+    "🧴 1.5L": 9000,
+    "🛢 5L": 35000
 }
 
+# 🧪 YANGILANGAN FORMULA: (1 dona uchun chiqim so'mda, 1 dona uchun litr hajm)
 FORMULA = {
-    "☕ katta": (333.33, 0.334),  
-    "🥤 kichik": (250.0, 0.25),   
-    "🧴 1L": (1000.0, 1.0),       
-    "🧴 1.5L": (1500.0, 1.5),     
-    "🛢 5L": (5000.0, 5.0)        
+    "☕ katta": (450.0, 0.3),    # 450 so'm chiqim, 0.3L hajm
+    "🥤 kichik": (350.0, 0.2),   # 350 so'm chiqim, 0.2L hajm
+    "🧴 1L": (2700.0, 1.0),      # 2700 so'm chiqim, 1.0L hajm
+    "🧴 1.5L": (3300.0, 1.5),    # 3300 so'm chiqim, 1.5L hajm
+    "🛢 5L": (8500.0, 5.0)       # 8500 so'm chiqim, 5.0L hajm
 }
 
 user_state = {}
-
-# 📂 BAZA NOMI O'ZGARTIRILDI (Eski tiqilib qolgan fayldan qutulish uchun)
 DB_NAME = "mors_biznes.db"
 
 def menu():
@@ -168,7 +168,8 @@ async def report(msg: Message):
         for row in rows:
             day = row[0] or 1
             day_kirim = row[1] or 0
-            day_chiqim = int(row[2] or 0)
+            
+            day_chiqim = round(row[2] or 0)
             day_litr = round(row[3] or 0, 2)
             day_foyda = day_kirim - day_chiqim
             
@@ -185,8 +186,8 @@ async def report(msg: Message):
     report_text += f"───────────────────\nℹ️ Joriy holat: {current_day}-kun.\n"
     report_text += f"📊 *UMUMIY YAKUN:* \n"
     report_text += f"   💵 Jami tushum: {grand_kirim:,} so‘m\n"
-    report_text += f"   💸 Jami xarajat: {grand_chiqim:,} so‘m\n"
-    report_text += f"   💎 JAMI SOF FOYDA: {(grand_kirim - grand_chiqim):,} so‘m\n"
+    report_text += f"   💸 Jami xarajat: {round(grand_chiqim):,} so‘m\n"
+    report_text += f"   💎 JAMI SOF FOYDA: {round(grand_kirim - grand_chiqim):,} so‘m\n"
     report_text += f"   🧪 JAMI SOTILGAN MORS: *{round(grand_litr, 2)} LITR*"
     
     await msg.answer(report_text, parse_mode="Markdown")
