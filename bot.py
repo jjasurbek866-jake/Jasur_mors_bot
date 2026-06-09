@@ -2,56 +2,57 @@ import asyncio
 import logging
 from aiogram import Bot, Dispatcher, types, F
 from aiogram.filters import Command
+from aiogram.fsm.context import FSMContext
+from aiogram.fsm.state import State, StatesGroup
 from aiogram.utils.keyboard import ReplyKeyboardBuilder
 import aiosqlite
 import aiohttp
 from aiohttp import web
+from datetime import datetime
 
-# 1. BOT TOKEN VA RENDER URL (O'zingiznikiga almashtiring)
-TOKEN = "8964012400:AAFVLbUReppLSsbJSi-403HSSsYZt0kTiC0"  # BotFather'dan olingan to'g'ri token turishi kerak!
+# 1. SOZLAMALAR
+TOKEN = "8964012400:AAFVLbUReppLSsbJSi-403HSSsYZt0kTiC0"  # O'zingizning oxirgi to'g'ri tokeningizni yozing
 RENDER_URL = "https://jasur-mors-bot.onrender.com"
 
-# Bot va Dispatcher obyektlari
 bot = Bot(token=TOKEN)
 dp = Dispatcher()
-
-# Logging (Xatoliklarni ko'rish uchun)
 logging.basicConfig(level=logging.INFO)
 
 # =====================================================================
-# RENDER UCHUN VEB-SERVER VA AVTOMATIK UYG'OTUVCHI (1-USUL)
+# RENDER UCHUN AVTOMATIK UYG'OTUVCHI (1-USUL)
 # =====================================================================
-
-# Render ping yuborganda 200 qaytaradigan oddiy sahifa
 async def handle_ping(request):
-    return web.Response(text="Bot ishlayapti, hammasi joyida!")
+    return web.Response(text="Bot uyg'oq!")
 
-# Bot o'z-o'ziga har 10 daqiqada so'rov yuborib, uxlashga qo'ymaydi
 async def self_ping_loop():
-    await asyncio.sleep(30) # Bot yongandan keyin biroz kutib ishga tushadi
+    await asyncio.sleep(30)
     async with aiohttp.ClientSession() as session:
         while True:
             try:
                 async with session.get(RENDER_URL) as response:
                     if response.status == 200:
-                        print("🤖 [Keep-Alive] Bot muvaffaqiyatli uyg'otildi!")
+                        print("🤖 [Keep-Alive] Ping muvaffaqiyatli!")
             except Exception as e:
-                print("⚠️ [Keep-Alive] Ping yuborishda xatolik:", e)
-            
-            await asyncio.sleep(600) # 10 daqiqa kutadi (600 soniya)
+                print("⚠️ [Keep-Alive] Xatolik:", e)
+            await asyncio.sleep(600)  # Har 10 daqiqada
 
-# Veb-serverni orqa fonda yurgizish
 async def start_web_server():
     app = web.Application()
     app.router.add_get('/', handle_ping)
     runner = web.AppRunner(app)
     await runner.setup()
-    site = web.TCPSite(runner, '0.0.0.0', 10000) # Render 10000 portni so'raydi
+    site = web.TCPSite(runner, '0.0.0.0', 10000)
     await site.start()
-    print("🌐 Web Server 10000-portda ishga tushdi!")
 
 # =====================================================================
-# MA'LUMOTLAR BAZASI (SQLITE) QISMI
+# FSM - SAVDO HOLATLARI (MAHSULOT -> NECHTALIGI)
+# =====================================================================
+class SavdoState(StatesGroup):
+    mahsulot_tanlash = State()
+    miqdor_kiritish = State()
+
+# =====================================================================
+# MA'LUMOTLAR BAZASI (SQLITE)
 # =====================================================================
 DB_NAME = "mors_biznes.db"
 
@@ -69,10 +70,18 @@ async def init_db():
         """)
         await db.commit()
 
-# =====================================================================
-# BOT BUYRUQLARI VA KLAVIATURA (SAVDO LOGIKASI)
-# =====================================================================
+# Joriy aktiv kun raqamini aniqlash funksiyasi
+async def get_current_day():
+    async with aiosqlite.connect(DB_NAME) as db:
+        async with db.execute("SELECT MAX(kun_soni) FROM savdo") as cursor:
+            row = await cursor.fetchone()
+            if row[0] is None:
+                return 1
+            return row[0]
 
+# =====================================================================
+# KLAVIATURALAR
+# =====================================================================
 def get_main_keyboard():
     builder = ReplyKeyboardBuilder()
     builder.button(text="☕ katta")
@@ -82,55 +91,119 @@ def get_main_keyboard():
     builder.button(text="🛢 5L")
     builder.button(text="🏁 Kunni yakunlash")
     builder.button(text="📊 Hisobot")
-    builder.adjust(2, 2, 1, 2) # Tugmalarni qatorga joylashtirish
+    builder.adjust(2, 2, 1, 2)
     return builder.as_markup(resize_keyboard=True)
+
+# =====================================================================
+# BOT LOGIKASI VA HANDLERLAR
+# =====================================================================
 
 @dp.message(Command("start"))
 async def start_cmd(message: types.Message):
+    joriy_kun = await get_current_day()
     await message.answer(
-        "☀️ 1-kun boshlandi (Sinov rejimi)!\nMahsulotni tanlang:",
+        f"☀️ {joriy_kun}-kun boshlandi!\nMahsulotni tanlang:",
         reply_markup=get_main_keyboard()
     )
 
-# Tugmalar bosilganda ishlaydigan handler (O'zingizni biznes hisob-kitobingiz)
+# 1. Mahsulot bosilganda ishlaydi va nechta deb so'raydi
 @dp.message(F.text.in_(["☕ katta", "🥫 kichik", "🍼 1L", "🥛 1.5L", "🛢 5L"]))
-async def handle_sales(message: types.Message):
-    mahsulot = message.text
-    # Bu yerga savdo kiritilganda bazaga yozish kodlaringiz tushadi
-    await message.answer(f"✅ {mahsulot} savdoga qo'shildi!")
+async def process_mahsulot(message: types.Message, state: FSMContext):
+    await state.update_data(tanlangan_mahsulot=message.text)
+    await state.set_state(SavdoState.miqdor_kiritish)
+    await message.answer(f"🔢 Nechta {message.text} sotildi? (Faqat son kiriting):")
 
+# 2. Miqdor kiritilganda ishlaydi va bazaga saqlaydi
+@dp.message(SavdoState.miqdor_kiritish)
+async def process_miqdor(message: types.Message, state: FSMContext):
+    if not message.text.isdigit():
+        await message.answer("⚠️ Iltimos, faqat musbat son kiriting!")
+        return
+
+    miqdor = int(message.text)
+    user_data = await state.get_data()
+    mahsulot = user_data['tanlangan_mahsulot']
+    
+    # Narxlar va litrajlarni aniqlash (O'zingiznikiga qarab o'zgartirishingiz mumkin)
+    narxlar = {"☕ katta": 8000, "🥫 kichik": 5000, "🍼 1L": 12000, "🥛 1.5L": 16000, "🛢 5L": 50000}
+    birlik_narx = narxlar.get(mahsulot, 0)
+    jami_narx = birlik_narx * miqdor
+    
+    joriy_kun = await get_current_day()
+    sana_str = datetime.now().strftime("%Y-%m-%d %H:%M")
+
+    # Ma'lumotni bazaga yozish (O'zingiz istagan "quanlity" nomi bilan)
+    async with aiosqlite.connect(DB_NAME) as db:
+        await db.execute(
+            "INSERT INTO savdo (kun_soni, turi, quanlity, narx, sana) VALUES (?, ?, ?, ?, ?)",
+            (joriy_kun, mahsulot, miqdor, jami_narx, sana_str)
+        )
+        await db.commit()
+
+    await state.clear()
+    await message.answer(f"✅ Saqlandi! {miqdor} ta {mahsulot} kiritildi.", reply_markup=get_main_keyboard())
+
+# 3. Haqiqiy hisobotni hisoblab chiqarish tizimi
 @dp.message(F.text == "📊 Hisobot")
 async def show_report(message: types.Message):
-    # Bu yerda bazadan ma'lumotlarni yig'ib hisobot chiqariladi
+    joriy_kun = await get_current_day()
+    
+    # Litr hisob-kitobi uchun shablon
+    litr_olchov = {"☕ katta": 0.4, "🥫 kichik": 0.25, "🍼 1L": 1.0, "🥛 1.5L": 1.5, "🛢 5L": 5.0}
+
+    async with aiosqlite.connect(DB_NAME) as db:
+        # Joriy kundagi barcha savdolarni yig'ish
+        async with db.execute("SELECT turi, quanlity, narx FROM savdo WHERE kun_soni = ?", (joriy_kun,)) as cursor:
+            rows = await cursor.fetchall()
+
+    if not rows:
+        await message.answer(f"📊 {joriy_kun}-kun uchun hali hech qanday savdo kiritilmadi.")
+        return
+
+    jami_tushum = 0
+    jami_litr = 0.0
+
+    for row in rows:
+        turi, miqdor, narx = row
+        jami_tushum += narx
+        # Litrni hisoblash
+        jami_litr += litr_olchov.get(turi, 0.0) * miqdor
+
+    # Xarajatni hisoblash (Masalan tushumning 35% i deb olsak yoki o'zingiz kiritadigan biron algoritm)
+    xarajat = int(jami_tushum * 0.33)  
+    sof_foyda = jami_tushum - xarajat
+
     hisobot_matni = (
-        "📊 **KUNLIK BIZNES HISOBOTI**\n\n"
-        "📆 1-kun:\n"
-        "💰 Tushum: 372,000 so'm\n"
-        "📉 Xarajat: 121,500 so'm\n"
-        "💎 Sof Foyda: 250,500 so'm\n"
-        "🥤 Sarflangan mors: 48.9 litr"
+        f"📊 **KUNLIK BIZNES HISOBOTI (HAQIQIY)**\n\n"
+        f"📆 {joriy_kun}-kun:\n"
+        f"💰 Tushum: {jami_tushum:,} so'm\n"
+        f"📉 Taxminiy Xarajat: {xarajat:,} so'm\n"
+        f"💎 Sof Foyda: {sof_foyda:,} so'm\n"
+        f"🥤 Sarflangan mors: {round(jami_litr, 1)} litr"
     )
     await message.answer(hisobot_matni)
 
 @dp.message(F.text == "🏁 Kunni yakunlash")
 async def end_day(message: types.Message):
-    await message.answer("🏁 Kun yakunlandi! Hisobotlar saqlandi.")
+    joriy_kun = await get_current_day()
+    
+    # Kelgusi kunni tayyorlash uchun bazaga bitta bo'sh yozuv kiritib qo'yamiz
+    async with aiosqlite.connect(DB_NAME) as db:
+        await db.execute(
+            "INSERT INTO savdo (kun_soni, turi, quanlity, narx, sana) VALUES (?, ?, ?, ?, ?)",
+            (joriy_kun + 1, "KUN_BOSHILISHI", 0, 0, datetime.now().strftime("%Y-%m-%d"))
+        )
+        await db.commit()
+        
+    await message.answer(f"🏁 {joriy_kun}-kun yakunlandi! Ertaga {joriy_kun + 1}-kun hisoblanadi.", reply_markup=get_main_keyboard())
 
 # =====================================================================
-# ASOSIY ISHGA TUSHIRISH (MAIN) FURIYASI
+# ISHGA TUSHIRISH
 # =====================================================================
 async def main():
-    # 1. Bazani yaratish/tekshirish
     await init_db()
-    
-    # 2. Render veb-serverini yoqish
     await start_web_server()
-    
-    # 3. Avtomatik o'zini uyg'otish tizimini fonda yoqish (1-USUL)
     asyncio.create_task(self_ping_loop())
-    
-    # 4. Telegram botni polling (xabarlarni kutish) rejimida yoqish
-    print("🤖 Bot muvaffaqiyatli tarmoqqa ulandi!")
     await dp.start_polling(bot)
 
 if __name__ == "__main__":
