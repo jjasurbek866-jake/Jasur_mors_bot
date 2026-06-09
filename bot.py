@@ -11,7 +11,7 @@ from aiohttp import web
 from datetime import datetime
 
 # 1. SOZLAMALAR
-TOKEN = "8964012400:AAFVLbUReppLSsbJSi-403HSSsYZt0kTiC0"  # O'zingizning oxirgi to'g'ri tokeningizni yozing
+TOKEN = "6463994781:AAF_..."  # O'zingizning to'g'ri tokeningizni yozing
 RENDER_URL = "https://jasur-mors-bot.onrender.com"
 
 bot = Bot(token=TOKEN)
@@ -45,14 +45,13 @@ async def start_web_server():
     await site.start()
 
 # =====================================================================
-# FSM - SAVDO HOLATLARI (MAHSULOT -> NECHTALIGI)
+# STATE - HOLATLAR
 # =====================================================================
 class SavdoState(StatesGroup):
-    mahsulot_tanlash = State()
     miqdor_kiritish = State()
 
 # =====================================================================
-# MA'LUMOTLAR BAZASI (SQLITE)
+# MA'LUMOTLAR BAZASI
 # =====================================================================
 DB_NAME = "mors_biznes.db"
 
@@ -70,7 +69,6 @@ async def init_db():
         """)
         await db.commit()
 
-# Joriy aktiv kun raqamini aniqlash funksiyasi
 async def get_current_day():
     async with aiosqlite.connect(DB_NAME) as db:
         async with db.execute("SELECT MAX(kun_soni) FROM savdo") as cursor:
@@ -80,7 +78,7 @@ async def get_current_day():
             return row[0]
 
 # =====================================================================
-# KLAVIATURALAR
+# KLAVIATURA
 # =====================================================================
 def get_main_keyboard():
     builder = ReplyKeyboardBuilder()
@@ -95,25 +93,23 @@ def get_main_keyboard():
     return builder.as_markup(resize_keyboard=True)
 
 # =====================================================================
-# BOT LOGIKASI VA HANDLERLAR
+# HANDLERLAR (SAVDO LOGIKASI)
 # =====================================================================
 
 @dp.message(Command("start"))
 async def start_cmd(message: types.Message):
     joriy_kun = await get_current_day()
     await message.answer(
-        f"☀️ {joriy_kun}-kun boshlandi!\nMahsulotni tanlang:",
+        f"☀️ {joriy_kun}-kun boshlandi (Sinov rejimi)!\nMahsulotni tanlang:",
         reply_markup=get_main_keyboard()
     )
 
-# 1. Mahsulot bosilganda ishlaydi va nechta deb so'raydi
 @dp.message(F.text.in_(["☕ katta", "🥫 kichik", "🍼 1L", "🥛 1.5L", "🛢 5L"]))
 async def process_mahsulot(message: types.Message, state: FSMContext):
     await state.update_data(tanlangan_mahsulot=message.text)
     await state.set_state(SavdoState.miqdor_kiritish)
-    await message.answer(f"🔢 Nechta {message.text} sotildi? (Faqat son kiriting):")
+    await message.answer(f"Nechta {message.text} sotildi? (Faqat son kiriting):")
 
-# 2. Miqdor kiritilganda ishlaydi va bazaga saqlaydi
 @dp.message(SavdoState.miqdor_kiritish)
 async def process_miqdor(message: types.Message, state: FSMContext):
     if not message.text.isdigit():
@@ -124,7 +120,7 @@ async def process_miqdor(message: types.Message, state: FSMContext):
     user_data = await state.get_data()
     mahsulot = user_data['tanlangan_mahsulot']
     
-    # Narxlar va litrajlarni aniqlash (O'zingiznikiga qarab o'zgartirishingiz mumkin)
+    # SENING ASLIY NARX REJANG:
     narxlar = {"☕ katta": 8000, "🥫 kichik": 5000, "🍼 1L": 12000, "🥛 1.5L": 16000, "🛢 5L": 50000}
     birlik_narx = narxlar.get(mahsulot, 0)
     jami_narx = birlik_narx * miqdor
@@ -132,7 +128,6 @@ async def process_miqdor(message: types.Message, state: FSMContext):
     joriy_kun = await get_current_day()
     sana_str = datetime.now().strftime("%Y-%m-%d %H:%M")
 
-    # Ma'lumotni bazaga yozish (O'zingiz istagan "quanlity" nomi bilan)
     async with aiosqlite.connect(DB_NAME) as db:
         await db.execute(
             "INSERT INTO savdo (kun_soni, turi, quanlity, narx, sana) VALUES (?, ?, ?, ?, ?)",
@@ -143,16 +138,16 @@ async def process_miqdor(message: types.Message, state: FSMContext):
     await state.clear()
     await message.answer(f"✅ Saqlandi! {miqdor} ta {mahsulot} kiritildi.", reply_markup=get_main_keyboard())
 
-# 3. Haqiqiy hisobotni hisoblab chiqarish tizimi
+# OLDINGI ESKI FORMATDAGI ASLIY HISOBOT TIZIMI
 @dp.message(F.text == "📊 Hisobot")
 async def show_report(message: types.Message):
     joriy_kun = await get_current_day()
     
-    # Litr hisob-kitobi uchun shablon
+    # Sening original litr va xarajat o'lchovlaring:
     litr_olchov = {"☕ katta": 0.4, "🥫 kichik": 0.25, "🍼 1L": 1.0, "🥛 1.5L": 1.5, "🛢 5L": 5.0}
+    xarajat_olchov = {"☕ katta": 2500, "🥫 kichik": 1500, "🍼 1L": 4000, "🥛 1.5L": 5500, "🛢 5L": 18000}
 
     async with aiosqlite.connect(DB_NAME) as db:
-        # Joriy kundagi barcha savdolarni yig'ish
         async with db.execute("SELECT turi, quanlity, narx FROM savdo WHERE kun_soni = ?", (joriy_kun,)) as cursor:
             rows = await cursor.fetchall()
 
@@ -161,23 +156,24 @@ async def show_report(message: types.Message):
         return
 
     jami_tushum = 0
+    jami_xarajat = 0
     jami_litr = 0.0
 
     for row in rows:
         turi, miqdor, narx = row
+        if turi == "KUN_BOSHILISHI":
+            continue
         jami_tushum += narx
-        # Litrni hisoblash
+        jami_xarajat += xarajat_olchov.get(turi, 0) * miqdor
         jami_litr += litr_olchov.get(turi, 0.0) * miqdor
 
-    # Xarajatni hisoblash (Masalan tushumning 35% i deb olsak yoki o'zingiz kiritadigan biron algoritm)
-    xarajat = int(jami_tushum * 0.33)  
-    sof_foyda = jami_tushum - xarajat
+    sof_foyda = jami_tushum - jami_xarajat
 
     hisobot_matni = (
-        f"📊 **KUNLIK BIZNES HISOBOTI (HAQIQIY)**\n\n"
+        f"📊 **KUNLIK BIZNES HISOBOTI**\n\n"
         f"📆 {joriy_kun}-kun:\n"
         f"💰 Tushum: {jami_tushum:,} so'm\n"
-        f"📉 Taxminiy Xarajat: {xarajat:,} so'm\n"
+        f"📉 Xarajat: {jami_xarajat:,} so'm\n"
         f"💎 Sof Foyda: {sof_foyda:,} so'm\n"
         f"🥤 Sarflangan mors: {round(jami_litr, 1)} litr"
     )
@@ -187,7 +183,6 @@ async def show_report(message: types.Message):
 async def end_day(message: types.Message):
     joriy_kun = await get_current_day()
     
-    # Kelgusi kunni tayyorlash uchun bazaga bitta bo'sh yozuv kiritib qo'yamiz
     async with aiosqlite.connect(DB_NAME) as db:
         await db.execute(
             "INSERT INTO savdo (kun_soni, turi, quanlity, narx, sana) VALUES (?, ?, ?, ?, ?)",
@@ -198,7 +193,7 @@ async def end_day(message: types.Message):
     await message.answer(f"🏁 {joriy_kun}-kun yakunlandi! Ertaga {joriy_kun + 1}-kun hisoblanadi.", reply_markup=get_main_keyboard())
 
 # =====================================================================
-# ISHGA TUSHIRISH
+# RUN
 # =====================================================================
 async def main():
     await init_db()
