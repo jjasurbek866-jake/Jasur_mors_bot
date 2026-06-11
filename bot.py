@@ -47,17 +47,15 @@ async def start_web_server():
     await site.start()
 
 # =====================================================================
-# FSM STATE VA STRUKTURA (OLDINGI HOLATIDEK)
+# FSM STATE VA STRUKTURA
 # =====================================================================
 class SavdoState(StatesGroup):
     miqdor_kiritish = State()
 
-# Oddiy foydalanuvchi holatini vaqtinchalik saqlash (Sening kodingdagi uslub)
 user_state = {}
 
 async def init_db():
     async with aiosqlite.connect(DB_NAME) as db:
-        # Sales jadvali sening asliyatdek
         await db.execute("""
             CREATE TABLE IF NOT EXISTS sales (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -70,14 +68,12 @@ async def init_db():
                 time TEXT
             )
         """)
-        # Settings jadvali kunni saqlash uchun
         await db.execute("""
             CREATE TABLE IF NOT EXISTS settings (
                 key TEXT PRIMARY KEY,
                 value TEXT
             )
         """)
-        # Agar current_day yo'q bo'lsa, 1-kun deb kiritamiz
         await db.execute("INSERT OR IGNORE INTO settings (key, value) VALUES ('current_day', '1')")
         await db.commit()
 
@@ -130,24 +126,28 @@ async def process_miqdor(message: Message, state: FSMContext):
     user_data = await state.get_data()
     selected_item = user_data['tanlangan_mahsulot']
     
-    # Narxlar, xarajatlar va litr hisob-kitoblari (Sening aslingdek)
-    narxlar = {"☕ katta": 8000, "🥫 kichik": 5000, "🍼 1L": 12000, "🥛 1.5L": 16000, "🛢 5L": 50000}
-    xarajatlar = {"☕ katta": 2500, "🥫 kichik": 1500, "🍼 1L": 4000, "🥛 1.5L": 5500, "🛢 5L": 18000}
+    # 🌟 SENING ASLIY SOTILISH NARXLARING:
+    narxlar = {"☕ katta": 3000, "🥫 kichik": 2000, "🍼 1L": 7000, "🥛 1.5L": 9000, "🛢 5L": 50000}
+    
+    # 🌟 SEN AYTGAN 1 DONA UCHUN ANIQ CHIQIMLAR (TANNARX):
+    tannarxlar = {"☕ katta": 450, "🥫 kichik": 350, "🍼 1L": 2700, "🥛 1.5L": 3300, "🛢 5L": 8500}
+    
+    # LITRLAR:
     litrlar = {"☕ katta": 0.4, "🥫 kichik": 0.25, "🍼 1L": 1.0, "🥛 1.5L": 1.5, "🛢 5L": 5.0}
     
     birlik_narx = narxlar.get(selected_item, 0)
-    birlik_chiqim = xarajatlar.get(selected_item, 0)
+    birlik_tannarx = tannarxlar.get(selected_item, 0)
     birlik_litr = litrlar.get(selected_item, 0.0)
     
-    price = birlik_narx  # sening kodingdagi price ustuni uchun
-    total = birlik_narx * qty  # jami tushum matn uchun
-    total_chiqim = birlik_chiqim * qty
+    price = birlik_narx
+    total = birlik_narx * qty  # Jami tushum
+    total_chiqim = birlik_tannarx * qty  # Jami chiqim (miqdorga ko'paytirilgan)
     total_litr = round(birlik_litr * qty, 2)
     
     current_day = await get_current_day()
     uid = message.from_user.id
 
-    # AYNAN SENING ASLIY INSERT SCRIPTING
+    # BAZAGA TO'G'RI CHIQIM BILAN SAQLASH
     async with aiosqlite.connect(DB_NAME) as db:
         await db.execute(
             "INSERT INTO sales(day_num, item, qty, price, chiqim, litr, time) VALUES(?,?,?,?,?,?,?)",
@@ -155,7 +155,7 @@ async def process_miqdor(message: Message, state: FSMContext):
         )
         await db.commit()
 
-    # AYNAN SENING ASLIY JAVOB MATNING
+    # JAVOB MATNI
     await message.answer(
         f"✅ Saqlandi!\n\n"
         f"🛒 Mahsulot: {selected_item}\n"
@@ -170,7 +170,7 @@ async def process_miqdor(message: Message, state: FSMContext):
         
     await state.clear()
 
-# AYNAN SENING ASLIY KUNNI YAKUNLASH SCRIPTING
+# KUNNI YAKUNLASH
 @dp.message(F.text == "🏁 Kunni yakunlash")
 async def finish_day(msg: Message):
     current_day = await get_current_day()
@@ -180,7 +180,7 @@ async def finish_day(msg: Message):
         await db.commit()
     await msg.answer(f"🏁 *{current_day}-kun* yakunlandi!\n🚀 *{next_day}-kun* ochildi.", parse_mode="Markdown")
 
-# AYNAN SENING ASLIY HISOBOT SCRIPTING
+# HISOBOT SCRIPTING
 @dp.message(F.text == "📊 hisobot")
 async def report(msg: Message):
     async with aiosqlite.connect(DB_NAME) as db:
@@ -227,16 +227,13 @@ async def report(msg: Message):
     await msg.answer(report_text, parse_mode="Markdown")
 
 # =====================================================================
-# ASLIY MAIN FUNKSIYA (WEB SERVER BILAN INTEGRATSIYA)
+# RUN
 # =====================================================================
 async def main():
     await init_db()
     await bot.delete_webhook(drop_pending_updates=True)
-    
-    # Render web serverini fonda ishga tushirish
     await start_web_server()
     asyncio.create_task(self_ping_loop())
-    
     await dp.start_polling(bot)
 
 if __name__ == "__main__":
