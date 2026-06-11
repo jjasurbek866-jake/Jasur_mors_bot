@@ -126,14 +126,14 @@ async def process_miqdor(message: Message, state: FSMContext):
     user_data = await state.get_data()
     selected_item = user_data['tanlangan_mahsulot']
     
-    # 🌟 SENING ASLIY SOTILISH NARXLARING:
+    # 🌟 SOTILISH NARXLARI:
     narxlar = {"☕ katta": 3000, "🥫 kichik": 2000, "🍼 1L": 7000, "🥛 1.5L": 9000, "🛢 5L": 50000}
     
-    # 🌟 SEN AYTGAN 1 DONA UCHUN ANIQ CHIQIMLAR (TANNARX):
+    # 🌟 1 DONA UCHUN CHIQIMLAR (TANNARX):
     tannarxlar = {"☕ katta": 450, "🥫 kichik": 350, "🍼 1L": 2700, "🥛 1.5L": 3300, "🛢 5L": 8500}
     
-    # LITRLAR:
-    litrlar = {"☕ katta": 0.4, "🥫 kichik": 0.25, "🍼 1L": 1.0, "🥛 1.5L": 1.5, "🛢 5L": 5.0}
+    # 🌟 YANGILANGAN HAQIQIY HAJMLAR (LITR):
+    litrlar = {"☕ katta": 0.3, "🥫 kichik": 0.2, "🍼 1L": 1.0, "🥛 1.5L": 1.5, "🛢 5L": 5.0}
     
     birlik_narx = narxlar.get(selected_item, 0)
     birlik_tannarx = tannarxlar.get(selected_item, 0)
@@ -141,13 +141,13 @@ async def process_miqdor(message: Message, state: FSMContext):
     
     price = birlik_narx
     total = birlik_narx * qty  # Jami tushum
-    total_chiqim = birlik_tannarx * qty  # Jami chiqim (miqdorga ko'paytirilgan)
+    total_chiqim = birlik_tannarx * qty  # Jami chiqim
     total_litr = round(birlik_litr * qty, 2)
     
     current_day = await get_current_day()
     uid = message.from_user.id
 
-    # BAZAGA TO'G'RI CHIQIM BILAN SAQLASH
+    # BAZAGA TO'G'RI CHIQIM VA LITR BILAN SAQLASH
     async with aiosqlite.connect(DB_NAME) as db:
         await db.execute(
             "INSERT INTO sales(day_num, item, qty, price, chiqim, litr, time) VALUES(?,?,?,?,?,?,?)",
