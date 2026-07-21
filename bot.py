@@ -12,7 +12,7 @@ from aiohttp import web
 from datetime import datetime
 
 # 1. SOZLAMALAR
-TOKEN = "6463994781:AAF_..."  # O'zingizning oxirgi to'g'ri tokeningizni yozing
+TOKEN = "8964012400:AAFVLbUReppLSsbJSi-403HSSsYZt0kTiC0"  # O'zingizning oxirgi to'g'ri tokeningizni yozing
 RENDER_URL = "https://jasur-mors-bot.onrender.com"
 DB_NAME = "mors_biznes.db"
 
