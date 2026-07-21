@@ -12,7 +12,7 @@ from aiohttp import web
 from datetime import datetime
 
 # 1. SOZLAMALAR
-TOKEN = "8964012400:AAFVLbUReppLSsbJSi-403HSSsYZt0kTiC0"  # O'zingizning oxirgi to'g'ri tokeningizni yozing
+TOKEN = "6463994781:AAF_..."  # O'zingizning to'g'ri tokeningizni yozing
 RENDER_URL = "https://jasur-mors-bot.onrender.com"
 DB_NAME = "mors_biznes.db"
 
@@ -52,13 +52,13 @@ async def start_web_server():
 class SavdoState(StatesGroup):
     miqdor_kiritish = State()
 
-user_state = {}
-
 async def init_db():
     async with aiosqlite.connect(DB_NAME) as db:
+        # User ID ustuni qo'shilgan sales jadvali
         await db.execute("""
             CREATE TABLE IF NOT EXISTS sales (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
+                user_id INTEGER,
                 day_num INTEGER,
                 item TEXT,
                 qty INTEGER,
@@ -68,20 +68,25 @@ async def init_db():
                 time TEXT
             )
         """)
+        # Har bir user uchun alohida joriy kun sozlamalari
         await db.execute("""
-            CREATE TABLE IF NOT EXISTS settings (
-                key TEXT PRIMARY KEY,
-                value TEXT
+            CREATE TABLE IF NOT EXISTS user_settings (
+                user_id INTEGER PRIMARY KEY,
+                current_day INTEGER DEFAULT 1
             )
         """)
-        await db.execute("INSERT OR IGNORE INTO settings (key, value) VALUES ('current_day', '1')")
         await db.commit()
 
-async def get_current_day():
+async def get_user_day(user_id: int) -> int:
     async with aiosqlite.connect(DB_NAME) as db:
-        async with db.execute("SELECT value FROM settings WHERE key = 'current_day'") as cursor:
+        async with db.execute("SELECT current_day FROM user_settings WHERE user_id = ?", (user_id,)) as cursor:
             row = await cursor.fetchone()
-            return int(row[0]) if row else 1
+            if row:
+                return row[0]
+            else:
+                await db.execute("INSERT INTO user_settings (user_id, current_day) VALUES (?, 1)", (user_id,))
+                await db.commit()
+                return 1
 
 # =====================================================================
 # KLAVIATURA
@@ -102,10 +107,16 @@ def get_main_keyboard():
 # HANDLERLAR
 # =====================================================================
 
+# 🌟 USER UCHUN ALOHIDA /start (KUNNI 1-KUNGA RESET QILISH):
 @dp.message(Command("start"))
 async def start_cmd(message: Message):
+    user_id = message.from_user.id
     async with aiosqlite.connect(DB_NAME) as db:
-        await db.execute("UPDATE settings SET value = '1' WHERE key = 'current_day'")
+        await db.execute(
+            "INSERT INTO user_settings (user_id, current_day) VALUES (?, 1) "
+            "ON CONFLICT(user_id) DO UPDATE SET current_day = 1",
+            (user_id,)
+        )
         await db.commit()
     
     await message.answer(
@@ -128,14 +139,15 @@ async def process_miqdor(message: Message, state: FSMContext):
     qty = int(message.text)
     user_data = await state.get_data()
     selected_item = user_data['tanlangan_mahsulot']
+    user_id = message.from_user.id
     
-    # 🌟 SOTILISH NARXLARI (5L = 30000 so'm qilindi):
+    # SOTILISH NARXLARI:
     narxlar = {"☕ katta": 3000, "🥫 kichik": 2000, "🍼 1L": 7000, "🥛 1.5L": 9000, "🛢 5L": 30000}
     
-    # 🌟 1 DONA UCHUN CHIQIMLAR (TANNARX):
+    # 1 DONA UCHUN CHIQIMLAR (TANNARX):
     tannarxlar = {"☕ katta": 450, "🥫 kichik": 350, "🍼 1L": 2700, "🥛 1.5L": 3300, "🛢 5L": 8500}
     
-    # 🌟 HAQIQIY HAJMLAR (LITR):
+    # HAQIQIY HAJMLAR (LITR):
     litrlar = {"☕ katta": 0.3, "🥫 kichik": 0.2, "🍼 1L": 1.0, "🥛 1.5L": 1.5, "🛢 5L": 5.0}
     
     birlik_narx = narxlar.get(selected_item, 0)
@@ -147,13 +159,12 @@ async def process_miqdor(message: Message, state: FSMContext):
     total_chiqim = birlik_tannarx * qty
     total_litr = round(birlik_litr * qty, 2)
     
-    current_day = await get_current_day()
-    uid = message.from_user.id
+    current_day = await get_user_day(user_id)
 
     async with aiosqlite.connect(DB_NAME) as db:
         await db.execute(
-            "INSERT INTO sales(day_num, item, qty, price, chiqim, litr, time) VALUES(?,?,?,?,?,?,?)",
-            (current_day, selected_item, qty, price, total_chiqim, total_litr, str(datetime.now()))
+            "INSERT INTO sales(user_id, day_num, item, qty, price, chiqim, litr, time) VALUES(?,?,?,?,?,?,?,?)",
+            (user_id, current_day, selected_item, qty, price, total_chiqim, total_litr, str(datetime.now()))
         )
         await db.commit()
 
@@ -165,45 +176,48 @@ async def process_miqdor(message: Message, state: FSMContext):
         f"📉 Ishlatilgan mors: {total_litr} litr",
         reply_markup=get_main_keyboard()
     )
-    
-    if uid in user_state:
-        del user_state[uid]
-        
     await state.clear()
 
-# KUNNI YAKUNLASH
+# KUNNI YAKUNLASH (FAQAT SHU USER UCHUN)
 @dp.message(F.text == "🏁 Kunni yakunlash")
 async def finish_day(msg: Message):
-    current_day = await get_current_day()
+    user_id = msg.from_user.id
+    current_day = await get_user_day(user_id)
     next_day = current_day + 1
+    
     async with aiosqlite.connect(DB_NAME) as db:
-        await db.execute("UPDATE settings SET value = ? WHERE key = 'current_day'", (str(next_day),))
+        await db.execute(
+            "UPDATE user_settings SET current_day = ? WHERE user_id = ?",
+            (next_day, user_id)
+        )
         await db.commit()
+        
     await msg.answer(f"🏁 *{current_day}-kun* yakunlandi!\n🚀 *{next_day}-kun* ochildi.", parse_mode="Markdown")
 
-# HISOBOT SCRIPTING
+# HISOBOT (FAQAT SHU USER'NIKI):
 @dp.message(F.text == "📊 hisobot")
 async def report(msg: Message):
+    user_id = msg.from_user.id
     async with aiosqlite.connect(DB_NAME) as db:
         cur = await db.execute("""
             SELECT day_num, SUM(qty * price), SUM(chiqim), SUM(litr) 
             FROM sales 
+            WHERE user_id = ?
             GROUP BY day_num 
             ORDER BY day_num ASC
-        """)
+        """, (user_id,))
         rows = await cur.fetchall()
 
-    current_day = await get_current_day()
+    current_day = await get_user_day(user_id)
     report_text = "📊 *KUNLIK BIZNES HISOBOTI*\n───────────────────\n"
     grand_kirim, grand_chiqim, grand_litr = 0, 0, 0
     
     if not rows:
-        report_text += "Hozircha savdo ma'lumotlari yo'q.\n"
+        report_text += "Hozircha sizda savdo ma'lumotlari yo'q.\n"
     else:
         for row in rows:
             day = row[0] or 1
             day_kirim = row[1] or 0
-            
             day_chiqim = round(row[2] or 0)
             day_litr = round(row[3] or 0, 2)
             day_foyda = day_kirim - day_chiqim
